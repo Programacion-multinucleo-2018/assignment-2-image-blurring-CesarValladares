@@ -1,7 +1,7 @@
 #include <iostream>
 #include <cstdio>
 #include <cmath>
-
+#include <chrono>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
@@ -14,13 +14,13 @@
 using namespace std;
 using namespace cv;
 
-__global__ void Blur_Kernel(unsigned char* input, unsigned char* output, int width, int height, int colorWidthStep){
+__global__ void Blur_Kernel(unsigned char* input, unsigned char* output, int width, int height, int colorWidthStep, int ref){
 
     // 2D Index of current thread
 	const int xIndex = blockIdx.x * blockDim.x + threadIdx.x;
     const int yIndex = blockIdx.y * blockDim.y + threadIdx.y;
 
-    int ref = floor(MS/2);
+    
     
     if ((xIndex < width) && (yIndex < height))
 	{
@@ -57,6 +57,9 @@ __global__ void Blur_Kernel(unsigned char* input, unsigned char* output, int wid
 
 void Blur(string file){
 
+    int ms = MS;
+    int ref = floor(ms/2);
+
     // Set up device
     int dev = 0;
     cudaDeviceProp deviceProp;
@@ -65,7 +68,7 @@ void Blur(string file){
     SAFE_CALL(cudaSetDevice(dev), "Error setting device");
 
     Mat input = cv::imread(file, CV_LOAD_IMAGE_COLOR);
-    cout << "Input image step: " << input.step << " rows: " << input.rows << " cols: " << input.cols << endl;
+    cout << "Input image step: " << input.step << " cols: " << input.cols << " rows: " << input.rows << endl;
 
     //Create output image
     Mat output(input.rows, input.cols, CV_8UC3);
@@ -94,7 +97,7 @@ void Blur(string file){
     printf("Blur_Kernel<<<(%d, %d) , (%d, %d)>>>\n", grid.x, grid.y, block.x, block.y);
     
     // Launch the color conversion kernel
-    Blur_Kernel <<<grid, block >>>(d_input, d_output, input.cols, input.rows, static_cast<int>(input.step));
+    Blur_Kernel <<<grid, block >>>(d_input, d_output, input.cols, input.rows, static_cast<int>(input.step), ref);
     
     // Synchronize to check for any kernel launch errors
 	SAFE_CALL(cudaDeviceSynchronize(), "Kernel Launch Failed");
@@ -104,7 +107,17 @@ void Blur(string file){
 
 	// Free the device memory
 	SAFE_CALL(cudaFree(d_input), "CUDA Free Failed");
-	SAFE_CALL(cudaFree(d_output), "CUDA Free Failed");
+    SAFE_CALL(cudaFree(d_output), "CUDA Free Failed");
+    
+    //Allow the windows to resize
+	namedWindow("Input", cv::WINDOW_NORMAL);
+	namedWindow("Output", cv::WINDOW_NORMAL);
+
+	//Show the input and output
+	imshow("Input", input);
+    imshow("Output", output);
+    
+
 }
 
 
@@ -115,9 +128,14 @@ int main(int argc, char *argv[]){
         cout << "No hay argumentos suficientes" << endl;
 
     }else{
-
+        auto startTime = chrono::high_resolution_clock::now();
         Blur(argv[1]);
+        auto endTime = chrono::high_resolution_clock::now();
+        chrono::duration<float, std::milli> duration_ms = endTime - startTime;
 
+        printf("Blur elapsed %f ms\n", duration_ms.count());
+
+        waitKey(0);
     }
 
 }   
